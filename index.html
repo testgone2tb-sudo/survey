@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Survey OCR Processing Portal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen font-sans flex flex-col items-center justify-center p-6">
+
+    <div class="max-w-4xl w-full bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl p-8">
+        
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <h1 class="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-400">
+                Survey OCR Data Extractor
+            </h1>
+            <p class="text-slate-400 mt-2 text-sm">
+                Upload 6 survey pages per batch. Data will be extracted and logged directly into Google Sheets.
+            </p>
+        </div>
+
+        <!-- File Upload Zone -->
+        <div id="dropZone" class="border-2 border-dashed border-slate-600 hover:border-blue-500 rounded-xl p-8 text-center transition cursor-pointer bg-slate-800/50">
+            <input type="file" id="fileInput" multiple accept="image/*" class="hidden">
+            <i class="fa-solid fa-cloud-arrow-up text-4xl text-blue-400 mb-3"></i>
+            <p class="text-lg font-medium text-slate-200">Drag & drop 6 images here, or <span class="text-blue-400 underline">browse</span></p>
+            <p class="text-xs text-slate-400 mt-1">Accepts JPG, PNG, WEBP (Batch limit: exactly 6 images)</p>
+        </div>
+
+        <!-- File Counter & Selected Previews -->
+        <div id="previewContainer" class="mt-6 hidden">
+            <div class="flex items-center justify-between mb-3">
+                <span id="fileCountText" class="text-sm font-semibold text-blue-400">0 / 6 Images Selected</span>
+                <button onclick="clearFiles()" class="text-xs text-rose-400 hover:text-rose-300 transition">Clear All</button>
+            </div>
+            <div id="thumbnailGrid" class="grid grid-cols-6 gap-3"></div>
+        </div>
+
+        <!-- Submit Button -->
+        <button id="submitBtn" onclick="processBatch()" disabled
+            class="w-full mt-6 py-3.5 px-6 rounded-xl font-semibold bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed transition flex items-center justify-center gap-2 shadow-lg">
+            <span id="btnText">Process & Save to Google Sheets</span>
+            <i id="btnSpinner" class="fa-solid fa-circle-notch animate-spin hidden"></i>
+        </button>
+
+        <!-- Status Message -->
+        <div id="statusAlert" class="mt-4 p-4 rounded-xl text-sm font-medium hidden"></div>
+
+        <!-- Results Output Card -->
+        <div id="resultCard" class="mt-6 hidden">
+            <h3 class="text-sm font-bold text-slate-300 uppercase tracking-wider mb-2">Extracted Payload</h3>
+            <pre id="jsonResult" class="bg-slate-950 text-emerald-400 p-4 rounded-xl text-xs overflow-x-auto max-h-60 border border-slate-800"></pre>
+        </div>
+
+    </div>
+
+    <script>
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const previewContainer = document.getElementById('previewContainer');
+        const thumbnailGrid = document.getElementById('thumbnailGrid');
+        const fileCountText = document.getElementById('fileCountText');
+        const submitBtn = document.getElementById('submitBtn');
+        const btnText = document.getElementById('btnText');
+        const btnSpinner = document.getElementById('btnSpinner');
+        const statusAlert = document.getElementById('statusAlert');
+        const resultCard = document.getElementById('resultCard');
+        const jsonResult = document.getElementById('jsonResult');
+
+        let selectedFiles = [];
+
+        dropZone.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
+
+        dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('border-blue-500'); });
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('border-blue-500'));
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('border-blue-500');
+            handleFiles(e.dataTransfer.files);
+        });
+
+        function handleFiles(files) {
+            selectedFiles = Array.from(files);
+            updatePreview();
+        }
+
+        function clearFiles() {
+            selectedFiles = [];
+            fileInput.value = '';
+            updatePreview();
+            statusAlert.classList.add('hidden');
+            resultCard.classList.add('hidden');
+        }
+
+        function updatePreview() {
+            thumbnailGrid.innerHTML = '';
+            const count = selectedFiles.length;
+            fileCountText.innerText = `${count} / 6 Images Selected`;
+
+            if (count > 0) {
+                previewContainer.classList.remove('hidden');
+                selectedFiles.forEach((file, idx) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        const imgDiv = document.createElement('div');
+                        imgDiv.className = "relative aspect-square rounded-lg overflow-hidden border border-slate-600 bg-slate-900";
+                        imgDiv.innerHTML = `<img src="${e.target.result}" class="w-full h-full object-cover">
+                                            <span class="absolute top-1 left-1 bg-slate-900/80 text-white text-[10px] px-1.5 py-0.5 rounded font-bold">#${idx + 1}</span>`;
+                        thumbnailGrid.appendChild(imgDiv);
+                    };
+                    reader.readAsDataURL(file);
+                });
+            } else {
+                previewContainer.classList.add('hidden');
+            }
+
+            // Enable button ONLY if exactly 6 files are selected
+            if (count === 6) {
+                submitBtn.disabled = false;
+                fileCountText.className = "text-sm font-semibold text-emerald-400";
+            } else {
+                submitBtn.disabled = true;
+                fileCountText.className = "text-sm font-semibold text-amber-400";
+            }
+        }
+
+        async function processBatch() {
+            if (selectedFiles.length !== 6) return;
+
+            // UI Loading state
+            submitBtn.disabled = true;
+            btnText.innerText = "Extracting & Syncing Data...";
+            btnSpinner.classList.remove('hidden');
+            statusAlert.classList.add('hidden');
+            resultCard.classList.add('hidden');
+
+            const formData = new FormData();
+            selectedFiles.forEach(file => formData.append('images', file));
+
+            try {
+                const response = await fetch('/process', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    statusAlert.className = "mt-4 p-4 rounded-xl text-sm font-medium bg-emerald-950/80 text-emerald-300 border border-emerald-800";
+                    statusAlert.innerText = "✓ Success: Data extracted and saved to Google Sheets!";
+                    jsonResult.innerText = JSON.stringify(result.data, null, 2);
+                    resultCard.classList.remove('hidden');
+                    clearFiles();
+                } else {
+                    throw new Error(result.detail || "Server error occurred.");
+                }
+            } catch (err) {
+                statusAlert.className = "mt-4 p-4 rounded-xl text-sm font-medium bg-rose-950/80 text-rose-300 border border-rose-800";
+                statusAlert.innerText = "✕ Error: " + err.message;
+            } finally {
+                statusAlert.classList.remove('hidden');
+                btnText.innerText = "Process & Save to Google Sheets";
+                btnSpinner.classList.add('hidden');
+            }
+        }
+    </script>
+</body>
+</html>
