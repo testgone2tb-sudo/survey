@@ -92,7 +92,7 @@ async def process_images(images: list[UploadFile] = File(...)):
         
         contents = pil_images + [prompt]
         response = client.models.generate_content(
-            model="gemini-3.6-flash",
+            model="gemini-3.5-flash",
             contents=contents
         )
         
